@@ -1,0 +1,217 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - '*.*.*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and publish unsigned IPA
+    runs-on: macos-26
+    timeout-minutes: 60
+
+    env:
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate tag and derive version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          identifier='(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)'
+          semver_regex="^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-${identifier}(\\.${identifier})*)?$"
+
+          if [[ ! "${tag}" =~ ${semver_regex} ]]; then
+            echo "Tag '${tag}' is invalid. Expected X.Y.Z or X.Y.Z-prerelease without a v prefix or build metadata." >&2
+            exit 1
+          fi
+
+          version="${tag%%-*}"
+          if [[ "${tag}" == *-* ]]; then
+            prerelease=true
+          else
+            prerelease=false
+          fi
+
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "prerelease=${prerelease}" >> "${GITHUB_OUTPUT}"
+
+      - name: Verify Xcode
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          xcode_major="$(xcodebuild -version | awk '/Xcode/ && !found { split($2, version, "."); print version[1]; found=1 }')"
+          if [[ -z "${xcode_major}" || "${xcode_major}" -lt 26 ]]; then
+            echo "MoeMemos requires Xcode 26 or newer." >&2
+            exit 1
+          fi
+
+      - name: Build unsigned archive
+        shell: bash
+        env:
+          MARKETING_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          archive_path="${RUNNER_TEMP}/MoeMemos.xcarchive"
+          xcodebuild \
+            -project MoeMemos.xcodeproj \
+            -scheme MoeMemos \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "${archive_path}" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY= \
+            MARKETING_VERSION="${MARKETING_VERSION}" \
+            CURRENT_PROJECT_VERSION="${GITHUB_RUN_NUMBER}" \
+            archive
+
+      - name: Validate and package IPA
+        id: package
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+          MARKETING_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          archive_path="${RUNNER_TEMP}/MoeMemos.xcarchive"
+          app_path="${archive_path}/Products/Applications/MoeMemos.app"
+          share_extension="${app_path}/PlugIns/MoeMemosShareExtension.appex"
+          widget_extension="${app_path}/PlugIns/MoeMemosWidgetsExtension.appex"
+
+          for bundle in "${app_path}" "${share_extension}" "${widget_extension}"; do
+            if [[ ! -d "${bundle}" ]]; then
+              echo "Expected bundle is missing: ${bundle}" >&2
+              exit 1
+            fi
+
+            plist="${bundle}/Info.plist"
+            minimum_os="$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "${plist}")"
+            short_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "${plist}")"
+            build_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "${plist}")"
+
+            if [[ "${minimum_os}" != "17.0" ]]; then
+              echo "${bundle} has MinimumOSVersion ${minimum_os}, expected 17.0." >&2
+              exit 1
+            fi
+            if [[ "${short_version}" != "${MARKETING_VERSION}" ]]; then
+              echo "${bundle} has short version ${short_version}, expected ${MARKETING_VERSION}." >&2
+              exit 1
+            fi
+            if [[ "${build_version}" != "${GITHUB_RUN_NUMBER}" ]]; then
+              echo "${bundle} has build version ${build_version}, expected ${GITHUB_RUN_NUMBER}." >&2
+              exit 1
+            fi
+          done
+
+          distribution_directory="${RUNNER_TEMP}/distribution"
+          staging_directory="${RUNNER_TEMP}/ipa-staging"
+          ipa_name="MoeMemos-${RELEASE_TAG}-unsigned.ipa"
+          checksum_name="${ipa_name}.sha256"
+          mkdir -p "${distribution_directory}" "${staging_directory}/Payload"
+          ditto "${app_path}" "${staging_directory}/Payload/MoeMemos.app"
+          (
+            cd "${staging_directory}"
+            /usr/bin/zip -qry "${distribution_directory}/${ipa_name}" Payload
+          )
+          (
+            cd "${distribution_directory}"
+            shasum -a 256 "${ipa_name}" > "${checksum_name}"
+          )
+
+          echo "ipa=${distribution_directory}/${ipa_name}" >> "${GITHUB_OUTPUT}"
+          echo "checksum=${distribution_directory}/${checksum_name}" >> "${GITHUB_OUTPUT}"
+
+      - name: Generate release notes
+        id: notes
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          notes_file="${RUNNER_TEMP}/release-notes.md"
+          generated_notes="$(
+            gh api \
+              --method POST \
+              "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
+              -f "tag_name=${RELEASE_TAG}" \
+              -f "target_commitish=${GITHUB_SHA}" \
+              --jq '.body'
+          )"
+
+          {
+            echo '> [!IMPORTANT]'
+            echo '> This is an unsigned IPA for iOS 17 or later. Sign it with your own certificate or sideloading tool before installation.'
+            echo
+            printf '%s\n' "${generated_notes}"
+          } > "${notes_file}"
+          echo "file=${notes_file}" >> "${GITHUB_OUTPUT}"
+
+      - name: Publish GitHub Release
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+          IS_PRERELEASE: ${{ steps.version.outputs.prerelease }}
+          IPA_PATH: ${{ steps.package.outputs.ipa }}
+          CHECKSUM_PATH: ${{ steps.package.outputs.checksum }}
+          NOTES_FILE: ${{ steps.notes.outputs.file }}
+        run: |
+          set -euo pipefail
+          title="MoeMemos ${RELEASE_TAG}"
+
+          if release_json="$(gh release view "${RELEASE_TAG}" --json isDraft 2>/dev/null)"; then
+            is_draft="$(jq -r '.isDraft' <<< "${release_json}")"
+            if [[ "${is_draft}" != "true" ]]; then
+              echo "Release ${RELEASE_TAG} is already published; refusing to overwrite it." >&2
+              exit 1
+            fi
+
+            gh release upload "${RELEASE_TAG}" "${IPA_PATH}" "${CHECKSUM_PATH}" --clobber
+            if [[ "${IS_PRERELEASE}" == "true" ]]; then
+              gh release edit "${RELEASE_TAG}" \
+                --title "${title}" \
+                --notes-file "${NOTES_FILE}" \
+                --draft=false \
+                --prerelease \
+                --latest=false \
+                --verify-tag
+            else
+              gh release edit "${RELEASE_TAG}" \
+                --title "${title}" \
+                --notes-file "${NOTES_FILE}" \
+                --draft=false \
+                --prerelease=false \
+                --verify-tag
+            fi
+            exit 0
+          fi
+
+          release_arguments=(
+            "${RELEASE_TAG}"
+            "${IPA_PATH}"
+            "${CHECKSUM_PATH}"
+            --title "${title}"
+            --notes-file "${NOTES_FILE}"
+            --verify-tag
+          )
+          if [[ "${IS_PRERELEASE}" == "true" ]]; then
+            release_arguments+=(--prerelease --latest=false)
+          fi
+          gh release create "${release_arguments[@]}"

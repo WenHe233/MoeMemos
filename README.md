@@ -16,7 +16,7 @@ Moe Memos
 [![Download Moe Memos on the App Store](https://memos.moe/app-store-badge.svg)](https://apps.apple.com/app/moe-memos/id1643902185)
 [![Join Moe Memos on TestFlight](https://img.shields.io/badge/TestFlight-Join%20Beta-0D96F6?logo=apple&logoColor=white)](https://testflight.apple.com/join/YVHheZ50)
 
-Moe Memos is available on App Store for free. You can also build this app with Xcode and run on your devices. iOS 18 or higher is required.
+Moe Memos is available on App Store for free. You can also build this app with Xcode and run on your devices. iOS 17 or higher is required.
 
 ## Features
 

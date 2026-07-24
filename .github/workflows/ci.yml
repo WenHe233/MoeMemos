@@ -1,0 +1,121 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build and test
+    runs-on: macos-26
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Verify Xcode
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          xcode_major="$(xcodebuild -version | awk '/Xcode/ && !found { split($2, version, "."); print version[1]; found=1 }')"
+          if [[ -z "${xcode_major}" || "${xcode_major}" -lt 26 ]]; then
+            echo "MoeMemos requires Xcode 26 or newer." >&2
+            exit 1
+          fi
+
+      - name: Verify deployment targets
+        shell: bash
+        run: |
+          set -euo pipefail
+          for target in MoeMemos MoeMemosShareExtension MoeMemosWidgetsExtension; do
+            deployment_target="$(
+              xcodebuild \
+                -project MoeMemos.xcodeproj \
+                -target "${target}" \
+                -configuration Debug \
+                -showBuildSettings |
+                awk '/IPHONEOS_DEPLOYMENT_TARGET/ && !found { print $3; found=1 }'
+            )"
+            if [[ "${deployment_target}" != "17.0" ]]; then
+              echo "${target} has deployment target ${deployment_target}, expected 17.0." >&2
+              exit 1
+            fi
+          done
+
+          while IFS= read -r manifest; do
+            if ! grep -Fq '.iOS(.v17)' "${manifest}"; then
+              echo "${manifest} does not declare iOS 17." >&2
+              exit 1
+            fi
+          done < <(find Packages -name Package.swift -print | sort)
+
+      - name: Build app and extensions
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project MoeMemos.xcodeproj \
+            -scheme MoeMemos \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "${RUNNER_TEMP}/DerivedData-App" \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Select simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          simulator_udid="$(
+            xcrun simctl list devices available --json |
+              python3 -c '
+          import json
+          import re
+          import sys
+
+          data = json.load(sys.stdin)
+          candidates = []
+          for runtime, devices in data["devices"].items():
+              if ".iOS-" not in runtime:
+                  continue
+              version = tuple(int(part) for part in re.findall(r"\d+", runtime))
+              for device in devices:
+                  if device.get("isAvailable") and device["name"].startswith("iPhone"):
+                      candidates.append((version, device["name"], device["udid"]))
+
+          if not candidates:
+              raise SystemExit("No available iPhone simulator was found.")
+          candidates.sort()
+          print(candidates[-1][2])
+          '
+          )"
+          echo "SIMULATOR_UDID=${simulator_udid}" >> "${GITHUB_ENV}"
+          xcrun simctl boot "${simulator_udid}" 2>/dev/null || true
+          xcrun simctl bootstatus "${simulator_udid}" -b
+
+      - name: Run Swift package tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          for package in Account DesignSystem Env MemoKit Models; do
+            (
+              cd "Packages/${package}"
+              xcodebuild \
+                -scheme "${package}" \
+                -destination "platform=iOS Simulator,id=${SIMULATOR_UDID}" \
+                -derivedDataPath "${RUNNER_TEMP}/DerivedData-${package}" \
+                CODE_SIGNING_ALLOWED=NO \
+                test
+            )
+          done

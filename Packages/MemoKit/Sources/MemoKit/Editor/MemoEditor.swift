@@ -9,8 +9,6 @@ import SwiftData
 @_weakLinked @preconcurrency import JournalingSuggestions
 #endif
 
-private let listItemSymbolList = ["- [ ] ", "- [x] ", "- [X] ", "* ", "- "]
-
 @MainActor
 public struct MemoEditor: View {
     public let memo: StoredMemo?
@@ -20,8 +18,7 @@ public struct MemoEditor: View {
     @Environment(AccountManager.self) private var accountManager
     @State private var viewModel = MemoEditorViewModel()
 
-    @State private var text = ""
-    @State private var selection: TextSelection?
+    @State private var editorTextState = MemoEditorTextState()
     @State private var isApplyingAutoContinuation = false
 
     @FocusState private var focused: Bool
@@ -39,6 +36,17 @@ public struct MemoEditor: View {
     public init(memo: StoredMemo?, actions: MemoEditorActions) {
         self.memo = memo
         self.actions = actions
+    }
+
+    private var text: String {
+        editorTextState.text
+    }
+
+    private var textSnapshot: MemoEditorTextSnapshot {
+        MemoEditorTextSnapshot(
+            text: editorTextState.text,
+            selectedRange: editorTextState.selectedRange
+        )
     }
 
     private var draftUserDefaults: UserDefaults {
@@ -94,8 +102,7 @@ public struct MemoEditor: View {
             VStack(alignment: .leading) {
                 privacyMenu
                     .padding(.horizontal)
-                TextEditor(text: $text, selection: $selection)
-                    .focused($focused)
+                AdaptiveMemoTextEditor(state: editorTextState, focused: $focused)
                     .overlay(alignment: .topLeading) {
                         if text.isEmpty {
                             Text("input.placeholder")
@@ -113,12 +120,21 @@ public struct MemoEditor: View {
 
         .onAppear {
             if let memo = memo {
-                text = memo.content
-                selection = .init(insertionPoint: text.endIndex)
+                editorTextState.apply(
+                    MemoEditorTextSnapshot(
+                        text: memo.content,
+                        selectedRange: MemoEditorTextTransforms.caretAtEnd(of: memo.content)
+                    )
+                )
                 viewModel.visibility = memo.visibility
             } else {
-                text = draft
-                selection = .init(insertionPoint: text.endIndex)
+                let draftText = draft
+                editorTextState.apply(
+                    MemoEditorTextSnapshot(
+                        text: draftText,
+                        selectedRange: MemoEditorTextTransforms.caretAtEnd(of: draftText)
+                    )
+                )
                 viewModel.visibility = userState.currentUser?.defaultVisibility ?? .private
             }
             if let memo {
@@ -316,8 +332,7 @@ public struct MemoEditor: View {
                 try await actions.createMemo(text, viewModel.visibility, resourceIds, tags)
                 draft = ""
             }
-            text = ""
-            selection = nil
+            editorTextState.apply(MemoEditorTextSnapshot(text: "", selectedRange: nil))
             dismiss()
             submitError = nil
         } catch {
@@ -357,16 +372,23 @@ public struct MemoEditor: View {
 
     private var supportsJournalingSuggestions: Bool {
 #if canImport(JournalingSuggestions) && os(iOS) && !targetEnvironment(macCatalyst)
-        if ProcessInfo.processInfo.isiOSAppOnMac {
+        guard #available(iOS 17.2, *) else {
             return false
         }
-        if UIDevice.current.userInterfaceIdiom == .mac {
-            return false
+        let deviceFamily: MemoEditorDeviceFamily
+        switch UIDevice.current.userInterfaceIdiom {
+        case .pad:
+            deviceFamily = .pad
+        case .mac:
+            deviceFamily = .mac
+        default:
+            deviceFamily = .phone
         }
-        if UIDevice.current.userInterfaceIdiom == .pad {
-            return ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 26
-        }
-        return true
+        return MemoEditorFeatureAvailability.supportsJournalingSuggestions(
+            operatingSystemVersion: ProcessInfo.processInfo.operatingSystemVersion,
+            deviceFamily: deviceFamily,
+            isIOSAppOnMac: ProcessInfo.processInfo.isiOSAppOnMac
+        )
 #else
         return false
 #endif
@@ -378,58 +400,7 @@ public struct MemoEditor: View {
     }
 
     private func toggleTodoItem() {
-        let currentText = text
-        guard let currentSelection = currentSelectionRange() else { return }
-        let lowerOffset = currentText.distance(from: currentText.startIndex, to: currentSelection.lowerBound)
-        let upperOffset = currentText.distance(from: currentText.startIndex, to: currentSelection.upperBound)
-
-        let contentBefore = currentText[currentText.startIndex..<currentSelection.lowerBound]
-        let lastLineBreak = contentBefore.lastIndex(of: "\n")
-        let nextLineBreak = currentText[currentSelection.lowerBound...].firstIndex(of: "\n") ?? currentText.endIndex
-        let currentLine: Substring
-        if let lastLineBreak = lastLineBreak {
-            currentLine = currentText[currentText.index(after: lastLineBreak)..<nextLineBreak]
-        } else {
-            currentLine = currentText[currentText.startIndex..<nextLineBreak]
-        }
-
-        let contentBeforeCurrentLine = currentText[currentText.startIndex..<currentLine.startIndex]
-        let contentAfterCurrentLine = currentText[nextLineBreak..<currentText.endIndex]
-
-        for prefixStr in listItemSymbolList {
-            if (!currentLine.hasPrefix(prefixStr)) {
-                continue
-            }
-
-            if prefixStr == "- [ ] " {
-                text = contentBeforeCurrentLine + "- [x] " + currentLine[currentLine.index(currentLine.startIndex, offsetBy: prefixStr.count)..<currentLine.endIndex] + contentAfterCurrentLine
-                return
-            }
-
-            let offset = "- [ ] ".count - prefixStr.count
-            text = contentBeforeCurrentLine + "- [ ] " + currentLine[currentLine.index(currentLine.startIndex, offsetBy: prefixStr.count)..<currentLine.endIndex] + contentAfterCurrentLine
-            let newLower = text.index(text.startIndex, offsetBy: lowerOffset + offset)
-            let newUpper = text.index(text.startIndex, offsetBy: upperOffset + offset)
-            selection = TextSelection(range: newLower..<newUpper)
-            return
-        }
-
-        text = contentBeforeCurrentLine + "- [ ] " + currentLine + contentAfterCurrentLine
-        let newLower = text.index(text.startIndex, offsetBy: lowerOffset + "- [ ] ".count)
-        let newUpper = text.index(text.startIndex, offsetBy: upperOffset + "- [ ] ".count)
-        selection = TextSelection(range: newLower..<newUpper)
-    }
-
-    private func currentSelectionRange() -> Range<String.Index>? {
-        guard let selection else { return nil }
-        switch selection.indices {
-        case .selection(let range):
-            return range
-        case .multiSelection(let rangeSet):
-            return rangeSet.ranges.first
-        @unknown default:
-            return nil
-        }
+        editorTextState.apply(MemoEditorTextTransforms.togglingTodo(in: textSnapshot))
     }
 
     private func applyAutoListContinuationIfNeeded(oldValue: String, newValue: String) {
@@ -438,92 +409,22 @@ public struct MemoEditor: View {
             return
         }
 
-        guard
-            let edit = detectSingleEdit(old: oldValue, new: newValue),
-            edit.replacedRange.lowerBound == edit.replacedRange.upperBound,
-            edit.insertedText == "\n"
-        else {
+        guard let snapshot = MemoEditorTextTransforms.continuingList(from: oldValue, to: newValue) else {
             return
         }
 
-        let insertionPoint = edit.replacedRange.lowerBound
-
-        let currentText = oldValue
-        let contentBefore = currentText[currentText.startIndex..<insertionPoint]
-        let lastLineBreak = contentBefore.lastIndex(of: "\n")
-        let nextLineBreak = currentText[insertionPoint...].firstIndex(of: "\n") ?? currentText.endIndex
-        let currentLine: Substring
-        if let lastLineBreak = lastLineBreak {
-            currentLine = currentText[currentText.index(after: lastLineBreak)..<nextLineBreak]
-        } else {
-            currentLine = currentText[currentText.startIndex..<nextLineBreak]
-        }
-
-        for prefixStr in listItemSymbolList {
-            if (!currentLine.hasPrefix(prefixStr)) {
-                continue
-            }
-
-            if currentLine.count <= prefixStr.count || currentText.index(currentLine.startIndex, offsetBy: prefixStr.count) >= insertionPoint {
-                break
-            }
-
-            let insertionOffset = currentText.distance(from: currentText.startIndex, to: insertionPoint)
-            let updatedText = currentText[currentText.startIndex..<insertionPoint] + "\n" + prefixStr + currentText[insertionPoint..<currentText.endIndex]
-            let cursorOffset = insertionOffset + prefixStr.count + 1
-            let cursor = updatedText.index(updatedText.startIndex, offsetBy: cursorOffset)
-
-            isApplyingAutoContinuation = true
-            text = String(updatedText)
-            selection = TextSelection(range: cursor..<cursor)
-            return
-        }
-    }
-
-    private func detectSingleEdit(old: String, new: String) -> (replacedRange: Range<String.Index>, insertedText: Substring)? {
-        var oldStart = old.startIndex
-        var newStart = new.startIndex
-        while oldStart < old.endIndex, newStart < new.endIndex, old[oldStart] == new[newStart] {
-            old.formIndex(after: &oldStart)
-            new.formIndex(after: &newStart)
-        }
-
-        if oldStart == old.endIndex, newStart == new.endIndex {
-            return nil
-        }
-
-        var oldEnd = old.endIndex
-        var newEnd = new.endIndex
-        while oldEnd > oldStart, newEnd > newStart {
-            let oldPrev = old.index(before: oldEnd)
-            let newPrev = new.index(before: newEnd)
-            if old[oldPrev] != new[newPrev] {
-                break
-            }
-            oldEnd = oldPrev
-            newEnd = newPrev
-        }
-
-        return (oldStart..<oldEnd, new[newStart..<newEnd])
+        isApplyingAutoContinuation = true
+        editorTextState.apply(snapshot)
     }
 
     private func insertAtSelection(_ insertedText: String) {
-        guard let selectionRange = currentSelectionRange() else {
-            text += insertedText
-            selection = .init(insertionPoint: text.endIndex)
-            return
-        }
-
-        let lowerOffset = text.distance(from: text.startIndex, to: selectionRange.lowerBound)
-        text = text.replacingCharacters(in: selectionRange, with: insertedText)
-        let cursor = text.index(text.startIndex, offsetBy: lowerOffset + insertedText.count)
-        selection = TextSelection(range: cursor..<cursor)
+        editorTextState.apply(MemoEditorTextTransforms.inserting(insertedText, into: textSnapshot))
     }
 
     @inline(never)
     private func withJournalingSuggestionsPicker<Content: View>(_ content: Content) -> AnyView {
 #if canImport(JournalingSuggestions) && os(iOS) && !targetEnvironment(macCatalyst)
-        if supportsJournalingSuggestions {
+        if #available(iOS 17.2, *), supportsJournalingSuggestions {
             return withNativeJournalingSuggestionsPicker(AnyView(content))
         }
 #endif
@@ -531,6 +432,7 @@ public struct MemoEditor: View {
     }
 
 #if canImport(JournalingSuggestions) && os(iOS) && !targetEnvironment(macCatalyst)
+    @available(iOS 17.2, *)
     @inline(never)
     private func withNativeJournalingSuggestionsPicker(_ content: AnyView) -> AnyView {
         AnyView(
@@ -541,6 +443,7 @@ public struct MemoEditor: View {
         )
     }
 
+    @available(iOS 17.2, *)
     private func insertJournalingSuggestion(_ suggestion: JournalingSuggestion) async {
         await attachJournalingSuggestionAssets(from: suggestion)
         let snippet = await journalingSuggestionSnippet(from: suggestion)
@@ -549,6 +452,7 @@ public struct MemoEditor: View {
         insertAtSelection(content)
     }
 
+    @available(iOS 17.2, *)
     private func attachJournalingSuggestionAssets(from suggestion: JournalingSuggestion) async {
         let urls = await journalingSuggestionAssetURLs(from: suggestion)
         guard !urls.isEmpty else { return }
@@ -570,6 +474,7 @@ public struct MemoEditor: View {
         }
     }
 
+    @available(iOS 17.2, *)
     private func journalingSuggestionAssetURLs(from suggestion: JournalingSuggestion) async -> [URL] {
         var urls: [URL] = []
 
@@ -588,6 +493,7 @@ public struct MemoEditor: View {
         return urls
     }
 
+    @available(iOS 17.2, *)
     private func journalingSuggestionSnippet(from suggestion: JournalingSuggestion) async -> String {
         var lines: [String] = []
         let title = suggestion.title.trimmingCharacters(in: .whitespacesAndNewlines)
