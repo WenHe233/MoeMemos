@@ -43,10 +43,21 @@ final class MemoEditorFeatureAvailabilityTests: XCTestCase {
         )
     }
 
+    func testJournalingSuggestionsAreUnavailableWithoutEntitlement() {
+        XCTAssertFalse(
+            supportsJournalingSuggestions(
+                version: (18, 0),
+                deviceFamily: .phone,
+                hasRequiredEntitlement: false
+            )
+        )
+    }
+
     private func supportsJournalingSuggestions(
         version: (Int, Int),
         deviceFamily: MemoEditorDeviceFamily,
-        isIOSAppOnMac: Bool = false
+        isIOSAppOnMac: Bool = false,
+        hasRequiredEntitlement: Bool = true
     ) -> Bool {
         MemoEditorFeatureAvailability.supportsJournalingSuggestions(
             operatingSystemVersion: OperatingSystemVersion(
@@ -55,7 +66,8 @@ final class MemoEditorFeatureAvailabilityTests: XCTestCase {
                 patchVersion: 0
             ),
             deviceFamily: deviceFamily,
-            isIOSAppOnMac: isIOSAppOnMac
+            isIOSAppOnMac: isIOSAppOnMac,
+            hasRequiredEntitlement: hasRequiredEntitlement
         )
     }
 }

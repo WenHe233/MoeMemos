@@ -10,8 +10,12 @@ enum MemoEditorFeatureAvailability {
     static func supportsJournalingSuggestions(
         operatingSystemVersion: OperatingSystemVersion,
         deviceFamily: MemoEditorDeviceFamily,
-        isIOSAppOnMac: Bool
+        isIOSAppOnMac: Bool,
+        hasRequiredEntitlement: Bool
     ) -> Bool {
+        guard hasRequiredEntitlement else {
+            return false
+        }
         guard isAtLeast(operatingSystemVersion, major: 17, minor: 2) else {
             return false
         }

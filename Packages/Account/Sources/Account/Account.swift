@@ -39,25 +39,28 @@ struct AccountCredentialStore {
 
 public extension Account {
     private static var credentialStore: AccountCredentialStore {
-        let sharedKeychain = KeychainSwift()
-        sharedKeychain.accessGroup = AppInfo.keychainAccessGroupName
+        let sharedKeychain = AppInfo.keychainAccessGroupName.map { accessGroup in
+            let keychain = KeychainSwift()
+            keychain.accessGroup = accessGroup
+            return keychain
+        }
         let privateKeychain = KeychainSwift()
 
         return AccountCredentialStore(
             saveToShared: { data, key in
-                sharedKeychain.set(data, forKey: key, withAccess: .accessibleAfterFirstUnlock)
+                sharedKeychain?.set(data, forKey: key, withAccess: .accessibleAfterFirstUnlock) ?? false
             },
             saveToPrivate: { data, key in
                 privateKeychain.set(data, forKey: key, withAccess: .accessibleAfterFirstUnlock)
             },
             readFromShared: { key in
-                sharedKeychain.getData(key)
+                sharedKeychain?.getData(key)
             },
             readFromPrivate: { key in
                 privateKeychain.getData(key)
             },
             deleteFromShared: { key in
-                sharedKeychain.delete(key)
+                sharedKeychain?.delete(key)
             },
             deleteFromPrivate: { key in
                 privateKeychain.delete(key)

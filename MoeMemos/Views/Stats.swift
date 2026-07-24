@@ -70,6 +70,6 @@ struct Stats: View {
     
     func days() -> Int {
         guard let user = userState.currentUser else { return 0 }
-        return Calendar.current.dateComponents([.day], from: user.creationDate, to: .now).day!
+        return Calendar.current.dateComponents([.day], from: user.creationDate, to: .now).day ?? 0
     }
 }

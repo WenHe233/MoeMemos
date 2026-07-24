@@ -44,7 +44,7 @@ import Factory
         }
     }
     
-    public init(modelContext: ModelContext) {
+    public init(modelContext: ModelContext, shouldCleanupOrphanedFiles: Bool = false) {
         self.modelContext = modelContext
         if currentAccountKey.isEmpty {
             currentAccount = nil
@@ -53,7 +53,9 @@ import Factory
         }
         shouldPersistCurrentAccountKey = true
 
-        try? ResourceFileStore.cleanupOrphanedFiles(context: modelContext)
+        if shouldCleanupOrphanedFiles {
+            try? ResourceFileStore.cleanupOrphanedFiles(context: modelContext)
+        }
     }
     
     internal func unsyncedMemoCount(for accountKey: String) -> Int {
@@ -165,7 +167,11 @@ public extension Container {
     @MainActor
     var accountManager: Factory<AccountManager> {
         self { @MainActor in
-            AccountManager(modelContext: self.appInfo().modelContext)
+            let appInfo = self.appInfo()
+            return AccountManager(
+                modelContext: appInfo.modelContext,
+                shouldCleanupOrphanedFiles: appInfo.usesPersistentStorage
+            )
         }.shared
     }
 }

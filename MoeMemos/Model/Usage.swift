@@ -17,10 +17,16 @@ struct DailyUsageStat: Identifiable {
     }
     
     static let initialMatrix: [DailyUsageStat] = {
-        let today = Calendar.current.startOfDay(for: .now)
-        
-        return Calendar.current.range(of: .day, in: .year, for: Date())!.map { day in
-            return Self.init(date: Calendar.current.date(byAdding: .day, value: 1 - day, to: today)!, count: 0)
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: .now)
+        guard let days = calendar.range(of: .day, in: .year, for: today) else {
+            return []
+        }
+
+        return days.compactMap { day in
+            calendar.date(byAdding: .day, value: 1 - day, to: today).map {
+                Self(date: $0, count: 0)
+            }
         }.reversed()
     }()
     

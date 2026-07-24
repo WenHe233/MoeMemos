@@ -55,4 +55,23 @@ final class ModelsTests: XCTestCase {
             cachesURL.appendingPathComponent("MoeMemos", isDirectory: true)
         )
     }
+
+    func testKeychainAccessGroupUsesCurrentSigningPrefix() {
+        XCTAssertEqual(
+            AppInfo.keychainAccessGroupName(
+                from: [
+                    "NEWTEAM123.com.example.unrelated",
+                    "NEWTEAM123.me.mudkip.MoeMemos"
+                ]
+            ),
+            "NEWTEAM123.me.mudkip.MoeMemos"
+        )
+    }
+
+    func testKeychainAccessGroupIsUnavailableWhenSigningEntitlementIsMissing() {
+        XCTAssertNil(AppInfo.keychainAccessGroupName(from: []))
+        XCTAssertNil(
+            AppInfo.keychainAccessGroupName(from: ["NEWTEAM123.com.example.unrelated"])
+        )
+    }
 }

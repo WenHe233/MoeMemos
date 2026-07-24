@@ -160,6 +160,8 @@ jobs:
           {
             echo '> [!IMPORTANT]'
             echo '> This is an unsigned IPA for iOS 17 or later. Sign it with your own certificate or sideloading tool before installation.'
+            echo '>'
+            echo '> Sharing account data with the Share extension and data widgets requires a signing profile that preserves the App Groups and Keychain Sharing capabilities. Journaling Suggestions requires its Apple entitlement.'
             echo
             printf '%s\n' "${generated_notes}"
           } > "${notes_file}"

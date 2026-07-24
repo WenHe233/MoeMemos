@@ -24,7 +24,7 @@ struct Provider: AppIntentTimelineProvider {
     
     func timeline(for configuration: MemosGraphWidgetConfiguration, in context: Context) async -> Timeline<MemosGraphEntry> {
         let matrix = try? await getMatrix()
-        let entryDate = Calendar.current.date(byAdding: .hour, value: 1, to: Date())!
+        let entryDate = Calendar.current.date(byAdding: .hour, value: 1, to: Date()) ?? Date()
         let entry = MemosGraphEntry(date: entryDate, configuration: configuration, matrix: matrix)
         return Timeline(entries: [entry], policy: .atEnd)
     }

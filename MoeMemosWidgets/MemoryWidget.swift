@@ -49,11 +49,15 @@ struct MemoryProvider: AppIntentTimelineProvider {
         
         if let memos = memos {
             for (i, memo) in memos.enumerated() {
-                let entryDate = Calendar.current.date(byAdding: .hour, value: i * (configuration.frequency ?? .daily).interval, to: Date())!
+                let entryDate = Calendar.current.date(
+                    byAdding: .hour,
+                    value: i * (configuration.frequency ?? .daily).interval,
+                    to: Date()
+                ) ?? Date()
                 entries.append(MemoryEntry(date: entryDate, configuration: configuration, memo: memo))
             }
         } else {
-            let entryDate = Calendar.current.date(byAdding: .hour, value: 1, to: Date())!
+            let entryDate = Calendar.current.date(byAdding: .hour, value: 1, to: Date()) ?? Date()
             entries.append(MemoryEntry(date: entryDate, configuration: configuration, memo: sampleMemo))
         }
         
@@ -169,7 +173,11 @@ struct PinnedMemoryProvider: AppIntentTimelineProvider {
         var entries: [PinnedMemoryEntry] = []
 
         for i in 0..<frequency.memosPerDay {
-            let entryDate = Calendar.current.date(byAdding: .hour, value: i * frequency.interval, to: Date())!
+            let entryDate = Calendar.current.date(
+                byAdding: .hour,
+                value: i * frequency.interval,
+                to: Date()
+            ) ?? Date()
             entries.append(PinnedMemoryEntry(date: entryDate, configuration: configuration, memo: memo))
         }
 

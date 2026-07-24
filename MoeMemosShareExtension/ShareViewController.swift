@@ -44,11 +44,11 @@ class ShareViewController: SLComposeServiceViewController {
                 
                 self.shareViewHostingController.rootView = MoeMemosShareView(alertType: .systemImage("checkmark.circle", NSLocalizedString("share.memo-saved", comment: "")))
                 try await Task.sleep(nanoseconds: 2_000_000_000)
-                self.extensionContext!.completeRequest(returningItems: [], completionHandler: nil)
+                self.extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
             } catch {
                 self.shareViewHostingController.rootView = MoeMemosShareView(alertType: .systemImage("xmark.circle", error.localizedDescription))
                 try await Task.sleep(nanoseconds: 2_000_000_000)
-                self.extensionContext!.completeRequest(returningItems: [], completionHandler: nil)
+                self.extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
             }
         }
     }

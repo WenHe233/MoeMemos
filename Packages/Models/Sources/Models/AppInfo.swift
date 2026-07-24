@@ -11,11 +11,14 @@ import StoreKit
 import SwiftData
 import Factory
 import OSLog
+#if canImport(Security)
+import Security
+#endif
 
 @Observable public class AppInfo {
     public static let groupContainerIdentifier = "group.me.mudkip.MoeMemos"
-    public static let keychainAccessGroupName = "AHAQ4D2466.me.mudkip.MoeMemos"
     private static let logger = Logger(subsystem: "me.mudkip.MoeMemos", category: "Persistence")
+    private static let keychainAccessGroupSuffix = ".me.mudkip.MoeMemos"
 
     public struct StorageDirectories: Equatable, Sendable {
         public let root: URL
@@ -38,6 +41,7 @@ import OSLog
     }
     
     @ObservationIgnored public let modelContext: ModelContext
+    @ObservationIgnored public let usesPersistentStorage: Bool
     
     public init() {
         let container: ModelContainer
@@ -52,6 +56,7 @@ import OSLog
                 StoredResource.self,
                 configurations: configuration
             )
+            usesPersistentStorage = true
         } catch {
             Self.logger.fault("Persistent model container failed: \(error.localizedDescription, privacy: .public)")
             let fallbackConfiguration = ModelConfiguration(isStoredInMemoryOnly: true)
@@ -64,6 +69,7 @@ import OSLog
                 fatalError("Unable to create the fallback model container.")
             }
             container = fallbackContainer
+            usesPersistentStorage = false
         }
 
         modelContext = ModelContext(container)
@@ -105,6 +111,32 @@ import OSLog
             return .standard
         }
         return sharedDefaults
+    }
+
+    public static var keychainAccessGroupName: String? {
+        keychainAccessGroupName(from: entitlementValues(for: "keychain-access-groups"))
+    }
+
+    public static var hasJournalingSuggestionsEntitlement: Bool {
+        entitlementValues(for: "com.apple.developer.journal.allow").contains("suggestions")
+    }
+
+    public static func keychainAccessGroupName(from entitlementValues: [String]) -> String? {
+        entitlementValues.first { $0.hasSuffix(keychainAccessGroupSuffix) }
+    }
+
+    private static func entitlementValues(for key: String) -> [String] {
+#if canImport(Security)
+        guard
+            let task = SecTaskCreateFromSelf(nil),
+            let value = SecTaskCopyValueForEntitlement(task, key as CFString, nil)
+        else {
+            return []
+        }
+        return value as? [String] ?? []
+#else
+        return []
+#endif
     }
     
     @ObservationIgnored public lazy var website = URL(string: "https://memos.moe")!
