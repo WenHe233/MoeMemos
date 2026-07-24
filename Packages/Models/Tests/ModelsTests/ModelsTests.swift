@@ -59,19 +59,19 @@ final class ModelsTests: XCTestCase {
     func testKeychainAccessGroupUsesCurrentSigningPrefix() {
         XCTAssertEqual(
             AppInfo.keychainAccessGroupName(
-                from: [
-                    "NEWTEAM123.com.example.unrelated",
-                    "NEWTEAM123.me.mudkip.MoeMemos"
-                ]
+                defaultAccessGroup: "NEWTEAM123.me.mudkip.MoeMemos.MoeMemosWidgetsExtension",
+                bundleIdentifier: "me.mudkip.MoeMemos.MoeMemosWidgetsExtension"
             ),
             "NEWTEAM123.me.mudkip.MoeMemos"
         )
     }
 
-    func testKeychainAccessGroupIsUnavailableWhenSigningEntitlementIsMissing() {
-        XCTAssertNil(AppInfo.keychainAccessGroupName(from: []))
+    func testKeychainAccessGroupIsUnavailableForUnexpectedDefaultGroup() {
         XCTAssertNil(
-            AppInfo.keychainAccessGroupName(from: ["NEWTEAM123.com.example.unrelated"])
+            AppInfo.keychainAccessGroupName(
+                defaultAccessGroup: "NEWTEAM123.com.example.unrelated",
+                bundleIdentifier: "me.mudkip.MoeMemos"
+            )
         )
     }
 }

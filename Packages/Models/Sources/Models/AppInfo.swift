@@ -113,29 +113,61 @@ import Security
         return sharedDefaults
     }
 
-    public static var keychainAccessGroupName: String? {
-        keychainAccessGroupName(from: entitlementValues(for: "keychain-access-groups"))
-    }
-
-    public static var hasJournalingSuggestionsEntitlement: Bool {
-        entitlementValues(for: "com.apple.developer.journal.allow").contains("suggestions")
-    }
-
-    public static func keychainAccessGroupName(from entitlementValues: [String]) -> String? {
-        entitlementValues.first { $0.hasSuffix(keychainAccessGroupSuffix) }
-    }
-
-    private static func entitlementValues(for key: String) -> [String] {
-#if canImport(Security)
+    public static let keychainAccessGroupName: String? = {
         guard
-            let task = SecTaskCreateFromSelf(nil),
-            let value = SecTaskCopyValueForEntitlement(task, key as CFString, nil)
+            let defaultAccessGroup = defaultKeychainAccessGroup(),
+            let bundleIdentifier = Bundle.main.bundleIdentifier
         else {
-            return []
+            return nil
         }
-        return value as? [String] ?? []
+        return keychainAccessGroupName(
+            defaultAccessGroup: defaultAccessGroup,
+            bundleIdentifier: bundleIdentifier
+        )
+    }()
+
+    public static func keychainAccessGroupName(
+        defaultAccessGroup: String,
+        bundleIdentifier: String
+    ) -> String? {
+        guard defaultAccessGroup.hasSuffix(bundleIdentifier) else {
+            return nil
+        }
+        let prefix = defaultAccessGroup.dropLast(bundleIdentifier.count)
+        return "\(prefix)\(keychainAccessGroupSuffix.dropFirst())"
+    }
+
+    private static func defaultKeychainAccessGroup() -> String? {
+#if canImport(Security)
+        let service = "me.mudkip.MoeMemos.keychain-access-group-probe"
+        let account = UUID().uuidString
+        let addQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecValueData as String: Data([0]),
+            kSecReturnAttributes as String: true
+        ]
+        let deleteQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
+        ]
+
+        var result: CFTypeRef?
+        let status = SecItemAdd(addQuery as CFDictionary, &result)
+        defer {
+            SecItemDelete(deleteQuery as CFDictionary)
+        }
+        guard
+            status == errSecSuccess,
+            let attributes = result as? [String: Any]
+        else {
+            return nil
+        }
+        return attributes[kSecAttrAccessGroup as String] as? String
 #else
-        return []
+        return nil
 #endif
     }
     

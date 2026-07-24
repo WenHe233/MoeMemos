@@ -387,8 +387,7 @@ public struct MemoEditor: View {
         return MemoEditorFeatureAvailability.supportsJournalingSuggestions(
             operatingSystemVersion: ProcessInfo.processInfo.operatingSystemVersion,
             deviceFamily: deviceFamily,
-            isIOSAppOnMac: ProcessInfo.processInfo.isiOSAppOnMac,
-            hasRequiredEntitlement: AppInfo.hasJournalingSuggestionsEntitlement
+            isIOSAppOnMac: ProcessInfo.processInfo.isiOSAppOnMac
         )
 #else
         return false
