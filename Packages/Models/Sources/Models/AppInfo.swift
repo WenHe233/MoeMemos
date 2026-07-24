@@ -96,6 +96,16 @@ import OSLog
         }
         return directories
     }
+
+    public static func sharedUserDefaults(fileManager: FileManager = .default) -> UserDefaults {
+        guard
+            fileManager.containerURL(forSecurityApplicationGroupIdentifier: groupContainerIdentifier) != nil,
+            let sharedDefaults = UserDefaults(suiteName: groupContainerIdentifier)
+        else {
+            return .standard
+        }
+        return sharedDefaults
+    }
     
     @ObservationIgnored public lazy var website = URL(string: "https://memos.moe")!
     @ObservationIgnored public lazy var privacy = URL(string: "https://memos.moe/privacy")!

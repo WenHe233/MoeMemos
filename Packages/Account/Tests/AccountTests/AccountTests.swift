@@ -60,4 +60,84 @@ final class AccountTests: XCTestCase {
         let result = evaluateMemosVersionCompatibility(.v1(version: "v0.27.1-beta.3"))
         XCTAssertEqual(result, .supported)
     }
+
+    func testCredentialStoreFallsBackToPrivateKeychain() {
+        var sharedSaveCount = 0
+        var privateSaveCount = 0
+        let store = makeCredentialStore(
+            saveToShared: { _, _ in
+                sharedSaveCount += 1
+                return false
+            },
+            saveToPrivate: { _, _ in
+                privateSaveCount += 1
+                return true
+            }
+        )
+
+        XCTAssertTrue(store.save(Data("token".utf8), forKey: "account"))
+        XCTAssertEqual(sharedSaveCount, 1)
+        XCTAssertEqual(privateSaveCount, 1)
+    }
+
+    func testCredentialStorePrefersSharedKeychain() {
+        var privateSaveCount = 0
+        var privateDeleteCount = 0
+        let store = makeCredentialStore(
+            saveToShared: { _, _ in true },
+            saveToPrivate: { _, _ in
+                privateSaveCount += 1
+                return true
+            },
+            deleteFromPrivate: { _ in
+                privateDeleteCount += 1
+            }
+        )
+
+        XCTAssertTrue(store.save(Data("token".utf8), forKey: "account"))
+        XCTAssertEqual(privateSaveCount, 0)
+        XCTAssertEqual(privateDeleteCount, 1)
+    }
+
+    func testCredentialStoreReadsPrivateKeychainWhenSharedValueIsMissing() {
+        let expected = Data("token".utf8)
+        let store = makeCredentialStore(
+            readFromShared: { _ in nil },
+            readFromPrivate: { _ in expected }
+        )
+
+        XCTAssertEqual(store.data(forKey: "account"), expected)
+    }
+
+    func testCredentialStoreDeletesBothKeychains() {
+        var deletedSharedKeys: [String] = []
+        var deletedPrivateKeys: [String] = []
+        let store = makeCredentialStore(
+            deleteFromShared: { deletedSharedKeys.append($0) },
+            deleteFromPrivate: { deletedPrivateKeys.append($0) }
+        )
+
+        store.delete("account")
+
+        XCTAssertEqual(deletedSharedKeys, ["account"])
+        XCTAssertEqual(deletedPrivateKeys, ["account"])
+    }
+
+    private func makeCredentialStore(
+        saveToShared: @escaping (Data, String) -> Bool = { _, _ in false },
+        saveToPrivate: @escaping (Data, String) -> Bool = { _, _ in false },
+        readFromShared: @escaping (String) -> Data? = { _ in nil },
+        readFromPrivate: @escaping (String) -> Data? = { _ in nil },
+        deleteFromShared: @escaping (String) -> Void = { _ in },
+        deleteFromPrivate: @escaping (String) -> Void = { _ in }
+    ) -> AccountCredentialStore {
+        AccountCredentialStore(
+            saveToShared: saveToShared,
+            saveToPrivate: saveToPrivate,
+            readFromShared: readFromShared,
+            readFromPrivate: readFromPrivate,
+            deleteFromShared: deleteFromShared,
+            deleteFromPrivate: deleteFromPrivate
+        )
+    }
 }

@@ -13,7 +13,7 @@ import Factory
 
 @MainActor
 @Observable public final class AccountManager: @unchecked Sendable {
-    @ObservationIgnored @AppStorage("currentAccountKey", store: UserDefaults(suiteName: AppInfo.groupContainerIdentifier))
+    @ObservationIgnored @AppStorage("currentAccountKey", store: AppInfo.sharedUserDefaults())
     private var currentAccountKey: String = ""
     @ObservationIgnored private var shouldPersistCurrentAccountKey = false
     @ObservationIgnored public private(set) var currentService: Service?

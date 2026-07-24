@@ -11,30 +11,77 @@ import KeychainSwift
 import MemosV0Service
 import MemosV1Service
 
+struct AccountCredentialStore {
+    let saveToShared: (Data, String) -> Bool
+    let saveToPrivate: (Data, String) -> Bool
+    let readFromShared: (String) -> Data?
+    let readFromPrivate: (String) -> Data?
+    let deleteFromShared: (String) -> Void
+    let deleteFromPrivate: (String) -> Void
+
+    func save(_ data: Data, forKey key: String) -> Bool {
+        if saveToShared(data, key) {
+            deleteFromPrivate(key)
+            return true
+        }
+        return saveToPrivate(data, key)
+    }
+
+    func data(forKey key: String) -> Data? {
+        readFromShared(key) ?? readFromPrivate(key)
+    }
+
+    func delete(_ key: String) {
+        deleteFromShared(key)
+        deleteFromPrivate(key)
+    }
+}
+
 public extension Account {
-    private static var keychain: KeychainSwift {
-        let keychain = KeychainSwift()
-        keychain.accessGroup = AppInfo.keychainAccessGroupName
-        return keychain
+    private static var credentialStore: AccountCredentialStore {
+        let sharedKeychain = KeychainSwift()
+        sharedKeychain.accessGroup = AppInfo.keychainAccessGroupName
+        let privateKeychain = KeychainSwift()
+
+        return AccountCredentialStore(
+            saveToShared: { data, key in
+                sharedKeychain.set(data, forKey: key, withAccess: .accessibleAfterFirstUnlock)
+            },
+            saveToPrivate: { data, key in
+                privateKeychain.set(data, forKey: key, withAccess: .accessibleAfterFirstUnlock)
+            },
+            readFromShared: { key in
+                sharedKeychain.getData(key)
+            },
+            readFromPrivate: { key in
+                privateKeychain.getData(key)
+            },
+            deleteFromShared: { key in
+                sharedKeychain.delete(key)
+            },
+            deleteFromPrivate: { key in
+                privateKeychain.delete(key)
+            }
+        )
     }
     
     func save() throws {
         let data = try JSONEncoder().encode(self)
-        let didSave = Self.keychain.set(data, forKey: key, withAccess: .accessibleAfterFirstUnlock)
+        let didSave = Self.credentialStore.save(data, forKey: key)
         if !didSave {
             throw MoeMemosError.accountCredentialSaveFailed(accountKey: key)
         }
     }
     
     func delete() {
-        Self.keychain.delete(key)
+        Self.credentialStore.delete(key)
     }
     
     static func retrieve(accountKey: String) -> Account? {
         if accountKey == Account.local.key {
             return .local
         }
-        guard let data = Self.keychain.getData(accountKey) else {
+        guard let data = Self.credentialStore.data(forKey: accountKey) else {
             return nil
         }
         return try? JSONDecoder().decode(Account.self, from: data)

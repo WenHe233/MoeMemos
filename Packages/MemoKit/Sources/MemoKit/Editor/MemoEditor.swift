@@ -50,7 +50,7 @@ public struct MemoEditor: View {
     }
 
     private var draftUserDefaults: UserDefaults {
-        UserDefaults(suiteName: AppInfo.groupContainerIdentifier) ?? .standard
+        AppInfo.sharedUserDefaults()
     }
 
     private var draftStorageKey: String {
