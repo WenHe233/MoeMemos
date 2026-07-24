@@ -46,7 +46,7 @@ jobs:
                 -configuration Debug \
                 -skipPackagePluginValidation \
                 -showBuildSettings |
-                awk '/IPHONEOS_DEPLOYMENT_TARGET/ && !found { print $3; found=1 }'
+                awk '$1 == "IPHONEOS_DEPLOYMENT_TARGET" && $2 == "=" && !found { print $3; found=1 }'
             )"
             if [[ "${deployment_target}" != "17.0" ]]; then
               echo "${target} has deployment target ${deployment_target}, expected 17.0." >&2
