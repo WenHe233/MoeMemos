@@ -87,11 +87,8 @@ enum ResourceFileStore {
     }
 
     private static func resourcesRootDirectory() throws -> URL {
-        guard let containerURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: AppInfo.groupContainerIdentifier) else {
-            throw MoeMemosError.unknown
-        }
-        return containerURL
-            .appendingPathComponent("Library/Application Support", isDirectory: true)
+        try AppInfo.storageDirectories()
+            .applicationSupport
             .appendingPathComponent("Resources", isDirectory: true)
     }
 
