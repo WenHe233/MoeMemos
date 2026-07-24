@@ -501,9 +501,11 @@ public struct MemoEditor: View {
             lines.append(title)
         }
 
-        let reflections = await suggestion.content(forType: JournalingSuggestion.Reflection.self)
-        let prompts = reflections.map(\.prompt).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-        lines.append(contentsOf: prompts.map { "- \($0)" })
+        if #available(iOS 18.0, *) {
+            let reflections = await suggestion.content(forType: JournalingSuggestion.Reflection.self)
+            let prompts = reflections.map(\.prompt).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+            lines.append(contentsOf: prompts.map { "- \($0)" })
+        }
 
         if let date = suggestion.date {
             lines.append("")
